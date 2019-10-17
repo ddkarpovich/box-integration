@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <div align="center">
+    {% if current_user.is_authenticated %}
+      {% if current_user.box_integration %}
+        Box integrated successfully
+        [<a href="{{ url_for('box_app_authorize') }}" title="Box integration">Re-integrate</a>]
+      {% else %}
+        <a href="{{ url_for('box_app_authorize') }}" title="Box integration">Integrate Box</a>
+      {% endif %}
+    {% endif %}
+  </div>
+{% endblock content %}
