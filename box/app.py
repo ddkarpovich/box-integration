@@ -26,13 +26,12 @@ from box.integration import views, models
 @click.argument("username")
 @click.argument("email")
 @click.argument("password")
-@click.argument("superuser")
-def create_user(username, email, password, superuser):
+def create_user(username, email, password):
     new_user = user_models.User(
         email=email,
         username=username,
         is_active=True,
-        is_admin=bool(superuser),
+        is_admin=True,
         password_hash=generate_password_hash(password, method='sha256')
     )
     db.session.add(new_user)

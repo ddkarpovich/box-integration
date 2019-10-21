@@ -5,3 +5,5 @@ flask-wtf==0.14.2
 flask-mysql==1.4.0
 pymysql
 boxsdk==2.6.0
+requests
+cryptography

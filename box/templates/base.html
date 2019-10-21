@@ -6,7 +6,11 @@
     <div>
       <a href="{{ url_for('home') }}">Home</a> |
       {% if current_user.is_authenticated %}
-        Welcome {{ current_user }}! {{ current_user.access_token }} |
+        Welcome {{ current_user }}! |
+        {% if current_user.box_integration and current_user.box_integration.access_token %}
+          <a href="{{ url_for('box_app_poll') }}" title="Poll events">Poll events</a> |
+          <a href="{{ url_for('box_app_admin_logs') }}" title="Poll events">Admin logs</a> |
+        {% endif %}
         <a href="{{ url_for('logout') }}" title="Logout">Logout</a>
       {% else %}
         <a href="{{ url_for('login') }}" title="Login">Login</a>

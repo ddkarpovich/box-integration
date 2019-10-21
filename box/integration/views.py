@@ -1,11 +1,11 @@
 from flask import render_template, redirect, request, flash, url_for
 from flask_login import current_user, login_required
 
-from boxsdk import Client
-from boxsdk import OAuth2
+from boxsdk import Client, OAuth2
+from boxsdk.exception import BoxAPIException
 
 from box.integration import config
-from box.integration.models import BoxIntegration, BoxWebHook
+from box.integration.models import BoxIntegration
 
 from box.app import app, db, csrf
 
@@ -48,7 +48,15 @@ def box_app_callback():
     access_token, refresh_token = oauth.authenticate(code)
 
     client = Client(oauth)
-    user_roles = [u.role for u in client.users(fields=['role'])]
+
+    try:
+        user_roles = [u.role for u in client.users(fields=['role'])]
+    except BoxAPIException as e:
+        if e.code == 'access_denied_insufficient_permissions':
+            flash(f'Can not process Box integration - {REQUIRED_USER_ROLE} user role is required.')
+        else:
+            flash(f'Something went wrong while trying to integrate Box APP (code {e.code})')
+        return redirect(url_for('home'))
 
     if any([r for r in user_roles if r == REQUIRED_USER_ROLE]):
         integration = current_user.box_integration
@@ -65,33 +73,6 @@ def box_app_callback():
         db.session.add(integration)
         db.session.commit()
 
-        user_oauth = OAuth2(
-            client_id=config.BOX_CLIENT_ID,
-            client_secret=config.BOX_CLIENT_SECRET,
-            access_token=access_token,
-            refresh_token=refresh_token
-        )
-        user_client = Client(user_oauth)
-
-        # Since Box WebHooks can not be applied to listen root event, we should attach a separate webhooks
-        # https://community.box.com/t5/Platform-and-Development-Forum/Listen-to-root-events-with-webhook-v2/td-p/63328#
-        for folder in user_client.root_folder().get_items():
-            query = BoxWebHook.query.filter_by(
-                integration=integration,
-                resource_id=folder.id,
-                events=','.join(WEBHOOK_EVENTS)
-            ).exists()
-            if not db.session.query(query).scalar():
-                webhook = user_client.create_webhook(folder, WEBHOOK_EVENTS, config.BOX_WEBHOOK_URL)
-                hook_instance = BoxWebHook(
-                    integration=integration,
-                    resource_id=folder.id,
-                    webhook_id=webhook.id,
-                    events=','.join(WEBHOOK_EVENTS)
-                )
-                db.session.add(hook_instance)
-                db.session.commit()
-
         flash('Box integration successfully added!')
     else:
         flash(f'Can not process Box integration - {REQUIRED_USER_ROLE} user role is required.')
@@ -99,9 +80,55 @@ def box_app_callback():
     return redirect(url_for('home'))
 
 
+@app.route('/poll', methods=['GET'])
+def box_app_poll():
+    integration = current_user.box_integration
+
+    if integration is None or not (integration.access_token and integration.refresh_token):
+        flash('You have to integrate BOX app first')
+        return redirect(url_for('home'))
+
+    user_oauth = OAuth2(
+        client_id=config.BOX_CLIENT_ID,
+        client_secret=config.BOX_CLIENT_SECRET,
+        access_token=integration.access_token,
+        refresh_token=integration.refresh_token
+    )
+    client = Client(user_oauth)
+    events = client.events().generate_events_with_long_polling()
+
+    for event in events:
+        flash(f'Got {event.event_type} event - {event.response_object}')
+        return redirect(url_for('home'))
+
+    return redirect(url_for('home'))
+
+
+@app.route('/admin_logs', methods=['GET'])
+def box_app_admin_logs():
+    integration = current_user.box_integration
+
+    if integration is None or not (integration.access_token and integration.refresh_token):
+        flash('You have to integrate BOX app first')
+        return redirect(url_for('home'))
+
+    user_oauth = OAuth2(
+        client_id=config.BOX_CLIENT_ID,
+        client_secret=config.BOX_CLIENT_SECRET,
+        access_token=integration.access_token,
+        refresh_token=integration.refresh_token
+    )
+    client = Client(user_oauth)
+    events = client.events().get_admin_events(event_types=['UPLOAD'])
+
+    for event in events['entries']:
+        flash(f'Got {event.event_type} event - {event.response_object}')
+
+    return redirect(url_for('home'))
+
+
 @app.route('/event', methods=['POST'])
 @csrf.exempt
-@login_required
 def box_app_event():
     """Box API WebHook notification listener."""
     return '', 204
