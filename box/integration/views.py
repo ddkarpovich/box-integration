@@ -1,6 +1,8 @@
 from flask import render_template, redirect, request, flash, url_for
 from flask_login import current_user, login_required
 
+import requests
+
 from boxsdk import Client, OAuth2
 from boxsdk.exception import BoxAPIException
 
@@ -50,7 +52,7 @@ def box_app_callback():
     client = Client(oauth)
 
     try:
-        user_roles = [u.role for u in client.users(fields=['role'])]
+        user_role = client.user().get(['role']).role
     except BoxAPIException as e:
         if e.code == 'access_denied_insufficient_permissions':
             flash(f'Can not process Box integration - {REQUIRED_USER_ROLE} user role is required.')
@@ -58,7 +60,7 @@ def box_app_callback():
             flash(f'Something went wrong while trying to integrate Box APP (code {e.code})')
         return redirect(url_for('home'))
 
-    if any([r for r in user_roles if r == REQUIRED_USER_ROLE]):
+    if user_role != REQUIRED_USER_ROLE:
         integration = current_user.box_integration
         if integration is None:
             integration = BoxIntegration(
@@ -120,6 +122,9 @@ def box_app_admin_logs():
     )
     client = Client(user_oauth)
     events = client.events().get_admin_events(event_types=['UPLOAD'])
+
+    flash(integration.access_token)
+    flash(integration.refresh_token)
 
     for event in events['entries']:
         flash(f'Got {event.event_type} event - {event.response_object}')
